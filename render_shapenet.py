@@ -11,6 +11,13 @@ import bpy
 from mathutils import Vector
 import numpy as np
 
+dir = os.path.dirname(bpy.data.filepath)
+if not dir in sys.path:
+    sys.path.append(dir )
+
+import util
+from import_obj import load
+
 parser = argparse.ArgumentParser(description='Renders given obj file by rotation a camera around it.')
 parser.add_argument(
     '--views', type=int, default=24,
@@ -105,7 +112,7 @@ def bounds(obj, local=False):
     return o_details(**originals)
 
 
-imported_object = bpy.ops.import_scene.obj(filepath=args.obj, use_edges=False, use_smooth_groups=False, split_mode='OFF')
+imported_object = load(args.obj) #bpy.ops.import_scene.obj(filepath=args.obj, use_edges=False, use_smooth_groups=False, split_mode='OFF')
 
 for this_obj in bpy.data.objects:
     if this_obj.type == "MESH":
@@ -149,23 +156,53 @@ print('model identifier: ' + model_identifier)
 synset_idx = args.obj.split('/')[-3]
 print('synset idx: ' + synset_idx)
 
-img_folder = os.path.join(os.path.abspath(args.output_folder), 'img', synset_idx, model_identifier)
-camera_folder = os.path.join(os.path.abspath(args.output_folder), 'camera', synset_idx, model_identifier)
+img_folder = os.path.join(os.path.abspath(args.output_folder),  synset_idx, model_identifier, 'rgb')
+#camera_folder = os.path.join(os.path.abspath(args.output_folder), 'camera', synset_idx, model_identifier)
+pose_dir = os.path.join(os.path.abspath(args.output_folder),  synset_idx, model_identifier, 'pose')
+
 
 os.makedirs(img_folder, exist_ok=True)
-os.makedirs(camera_folder, exist_ok=True)
+#os.makedirs(camera_folder, exist_ok=True)
+os.makedirs(pose_dir, exist_ok=True)
+
+
 
 rotation_angle_list = np.random.rand(args.views)
 elevation_angle_list = np.random.rand(args.views)
 rotation_angle_list = rotation_angle_list * 360
 elevation_angle_list = elevation_angle_list * 30
-np.save(os.path.join(camera_folder, 'rotation'), rotation_angle_list)
-np.save(os.path.join(camera_folder, 'elevation'), elevation_angle_list)
+#np.save(os.path.join(camera_folder, 'rotation'), rotation_angle_list)
+#np.save(os.path.join(camera_folder, 'elevation'), elevation_angle_list)
+
+resolution = 256
+
+K = util.get_calibration_matrix_K_from_blender(cam.data)
+with open(os.path.join(os.path.abspath(args.output_folder),  synset_idx, model_identifier, 'intrinsics.txt'),'w') as intrinsics_file:
+     intrinsics_file.write('%f %f %f 0.\n'%(K[0][0], K[0][2], K[1][2]))
+     intrinsics_file.write('0. 0. 0.\n')
+     intrinsics_file.write('1.\n')
+     intrinsics_file.write('%d %d\n'%(resolution, resolution))
+
 
 for i in range(0, args.views):
     cam_empty.rotation_euler[2] = math.radians(rotation_angle_list[i])
     cam_empty.rotation_euler[0] = math.radians(elevation_angle_list[i])
 
+    print('cam_empty_matrix', cam_empty.matrix_world)
+    print('cam_matrix', cam.matrix_world)
+    print('cam_empty_data', cam_empty.data)
+    print('cam_data', cam.data)
+
+    RT = util.get_world2cam_from_blender_cam(cam)
+    cam2world = RT.inverted()
+    with open(os.path.join(pose_dir, '%06d.txt'%i),'w') as pose_file:
+        matrix_flat = []
+        for j in range(4):
+            for k in range(4):
+                matrix_flat.append(cam2world[j][k])
+        pose_file.write(' '.join(map(str, matrix_flat)) + '\n')
+        
+    
     print("Rotation {}, {}".format((stepsize * i), math.radians(stepsize * i)))
     render_file_path = os.path.join(img_folder, '%03d.png' % (i))
     scene.render.filepath = render_file_path
